@@ -82,10 +82,11 @@ to set up different protocol servers all attached to the same port via
 a `tcpsorter.NewPortal()` and `(*tcpsorter.Portal).Listen()` calls for
 each different protocol. In this case, we would assign the telnet protocol as the default listener. Something like this:
 ```
-portal, _ := tcpsorter.NewPortal(":8080", 10*time.Second)
+portal, _ := tcpsorter.NewPortal(":8080")
 h, _ := portal.Listen([]byte("GET "))
 ssh, _ := portal.Listen([]byte("SSH-2.0-OpenSSH"))
 telnet, _ := portal.Listen(nil)
+go portal.Run(10*time.Second)
 ```
 
 Of course, you will need to write the code to connect the http server
