@@ -8,10 +8,13 @@ supplied byte stream data. This package can be used to support
 multiple server instances on the same TCP port.
 
 The support is similar in concept to a shell script executing the
-`file -i` command and executing a different application with that file
-as an argument. Supported services require that the TCP client send
-data before the server, so the nature of the connection attempt can be
-properly _sorted_.
+`file -i` command and based on the determined mime-type, executing a
+different application with that file as an argument. Supported
+services require that the TCP client send data before the server, so
+the nature of the connection attempt can be properly _sorted_.
+
+Automated documentation for this Go package is available from
+[pkg.go.dev](https://pkg.go.dev/zappem.net/pub/net/tcpsorter).
 
 ## What can this package do?
 
@@ -57,7 +60,7 @@ which will dump:
 
 Another example:
 ```
-telnet localhost 8080
+$ telnet localhost 8080
 Trying ::1...
 Connected to localhost.
 Escape character is '^]'.
@@ -83,9 +86,9 @@ a `tcpsorter.NewPortal()` and `(*tcpsorter.Portal).Listen()` calls for
 each different protocol. In this case, we would assign the telnet protocol as the default listener. Something like this:
 ```
 portal, _ := tcpsorter.NewPortal(":8080")
-h, _ := portal.Listen([]byte("GET "))
+h, _ := portal.Listen([]byte("GET "), []byte("PUT "), []byte("POST "), []byte("PATCH "), []byte("DELETE "))
 ssh, _ := portal.Listen([]byte("SSH-2.0-OpenSSH"))
-telnet, _ := portal.Listen(nil)
+telnet, _ := portal.Listen()
 go portal.Run(10*time.Second)
 ```
 
@@ -96,7 +99,8 @@ to a single port.
 
 Note: protocols that initiate with the _server_ sending data will
 conflict with the `telnet` connection in this example, and any server
-using `tcpsorter` will have to pick one such server.
+using `tcpsorter` can pick only one such server backend to be the
+default listener.
 
 ## License info
 

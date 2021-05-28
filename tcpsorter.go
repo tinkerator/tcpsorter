@@ -16,9 +16,9 @@ import (
 // Listener holds the tcpsorter's net.Listener interface
 // implementation.
 type Listener struct {
-	prefix []byte
-	p      *Portal
-	lis    chan connInfo
+	prefixes [][]byte
+	p        *Portal
+	lis      chan connInfo
 }
 
 // Accept implements the (net.Listener).Accept() method.
@@ -36,7 +36,7 @@ func (lis *Listener) Accept() (net.Conn, error) {
 
 // Close implements the (net.Listener).Close() method.
 func (lis *Listener) Close() error {
-	return lis.p.close(lis.prefix)
+	return lis.p.close(lis.prefixes...)
 }
 
 // Addr implements the (net.Listener).Addr() method.
@@ -140,21 +140,28 @@ func (p *Portal) Addr() net.Addr {
 	return p.lis.Addr()
 }
 
-// close causes a Listener to be closed.
-func (p *Portal) close(prefix []byte) error {
+// close causes a Listener to be closed. This specifically closes all
+// of the prefixes being watched for on this channel.
+func (p *Portal) close(prefixes ...[]byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if prefix == nil {
+	if prefixes == nil || prefixes[0] == nil {
 		if p.failover != nil {
 			close(p.failover)
 			p.failover = nil
 		}
 		return nil
 	}
-	key := string(prefix)
-	if ch, ok := p.listeners[key]; ok {
-		close(ch)
-		delete(p.listeners, key)
+	var lastCh chan connInfo
+	for i := 0; i < len(prefixes); i++ {
+		key := string(prefixes[i])
+		if ch, ok := p.listeners[key]; ok {
+			if lastCh != ch {
+				close(ch)
+				lastCh = ch
+			}
+			delete(p.listeners, key)
+		}
 	}
 	return nil
 }
@@ -163,30 +170,37 @@ func (p *Portal) close(prefix []byte) error {
 // first few bytes of incoming data equal to prefix. If the provided
 // prefix is empty (or equivalently nil), this will return the default
 // failover-listener.
-func (p *Portal) Listen(prefix []byte) (net.Listener, error) {
-	pl := &Listener{p: p, prefix: prefix}
+func (p *Portal) Listen(prefixes ...[]byte) (net.Listener, error) {
+	pl := &Listener{p: p, prefixes: prefixes}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if prefix == nil {
+	if prefixes == nil || prefixes[0] == nil {
 		pl.lis = p.failover
 		if pl.lis == nil {
 			return nil, net.ErrClosed
 		}
 	} else {
-		key := string(prefix)
-		for x := range p.listeners {
-			if strings.HasPrefix(key, x) {
-				return nil, fmt.Errorf("%q is a prefix for listener %q", key, x)
+		keys := make(map[string]bool)
+		for i := 0; i < len(prefixes); i++ {
+			key := string(prefixes[i])
+			for x := range p.listeners {
+				if strings.HasPrefix(key, x) {
+					return nil, fmt.Errorf("%q is a prefix for listener %q", x, key)
+				}
+				if strings.HasPrefix(x, key) {
+					return nil, fmt.Errorf("%q is covered by listener %q", key, x)
+				}
 			}
-			if strings.HasPrefix(x, key) {
-				return nil, fmt.Errorf("%q is covered by listener %q", key, x)
+			if _, reused := keys[key]; reused {
+				return nil, fmt.Errorf("%q is a duplicate", key)
 			}
+			keys[key] = true
 		}
-		if _, ok := p.listeners[key]; ok {
-			return nil, fmt.Errorf("prefix %v already in use", key)
-		}
+
 		ch := make(chan connInfo)
-		p.listeners[key] = ch
+		for key := range keys {
+			p.listeners[key] = ch
+		}
 		pl.lis = ch
 	}
 	return pl, nil
@@ -237,9 +251,13 @@ func (p *Portal) Run(timeout time.Duration) error {
 	for {
 		c, err := p.lis.Accept()
 		if err != nil {
+			done := make(map[chan connInfo]bool)
 			p.mu.Lock()
 			for key, ch := range p.listeners {
-				close(ch)
+				if !done[ch] {
+					close(ch)
+					done[ch] = true
+				}
 				delete(p.listeners, key)
 			}
 			if p.failover != nil {

@@ -42,7 +42,7 @@ func TestPortal(t *testing.T) {
 		t.Fatalf("didn't notice \"abc\" is ambiguous")
 	}
 
-	p2, err := p.Listen([]byte("abd"))
+	p2, err := p.Listen([]byte("abd"), []byte("12"))
 	if err != nil {
 		t.Fatalf("failed to listen for \"abd\": %v", err)
 	}
@@ -86,6 +86,7 @@ func TestPortal(t *testing.T) {
 		{"a", "zero"},
 		{"abcd", "one"},
 		{"dcba", "zero"},
+		{"1234", "two"},
 	}
 	var ds []net.Conn
 	for i := range streams {
